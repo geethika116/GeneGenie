@@ -1,22 +1,43 @@
-# Streamlit Python Template
+# 🧬 Gene Genie
 
-A clean, minimal Streamlit application template ready for development.
+A DNA/RNA sequence extraction and analysis tool powered by Streamlit and OpenAI.
 
 ## Structure
 
 ```
 .
-├── app.py              # Main application file
-├── pages/              # Multi-page apps (optional)
-├── components/         # Reusable components (optional)
-└── utils/              # Utility functions (optional)
+├── main.py             # Main Streamlit application (Gene Genie)
+├── app.py              # Alternative Streamlit UI
+├── server/             # Express proxy server
+├── client/             # React frontend (disabled, proxied to Streamlit)
+└── attached_assets/    # Static assets
 ```
 
 ## Getting Started
 
-1. The main application is in `app.py`
-2. Run the app (it starts automatically on Replit)
-3. Edit `app.py` to customize your application
+### Running the Application
+
+The application now defaults to the Streamlit interface. To start both the Express proxy server and Streamlit:
+
+```bash
+npm run dev
+```
+
+This will:
+- Start the Express server on port 5000 (proxies to Streamlit)
+- Start the Streamlit app on port 8501
+
+Then visit **http://localhost:5000** to access the Gene Genie Streamlit application.
+
+### Alternative: Run Servers Separately
+
+```bash
+# Terminal 1 - Express proxy server
+npm run dev:server
+
+# Terminal 2 - Streamlit app
+npm run dev:streamlit
+```
 
 ## Adding Pages
 

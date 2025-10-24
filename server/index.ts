@@ -37,8 +37,6 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  const server = await registerRoutes(app);
-
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
@@ -47,25 +45,36 @@ app.use((req, res, next) => {
     throw err;
   });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  if (app.get("env") === "development") {
-    await setupVite(app, server);
-  } else {
-    serveStatic(app);
-  }
+  // NOTE: Vite setup is disabled because we're proxying to Streamlit
+  // If you need the React app back, uncomment the following:
+  // if (app.get("env") === "development") {
+  //   await setupVite(app, server);
+  // } else {
+  //   serveStatic(app);
+  // }
+
+  // Register routes AFTER error handler and AFTER any Vite setup
+  // The proxy to Streamlit is set up in registerRoutes
+  const server = await registerRoutes(app);
 
   // ALWAYS serve the app on the port specified in the environment variable PORT
   // Other ports are firewalled. Default to 5000 if not specified.
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || '5000', 10);
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
-    log(`serving on port ${port}`);
+  // Allow overriding the host via environment (useful for dev and CI)
+  const host = process.env.HOST || "0.0.0.0";
+
+  // `reusePort` (SO_REUSEPORT) is not supported on all platforms (notably
+  // Windows). Passing it on unsupported platforms causes an ENOTSUP error.
+  // Only set reusePort when the platform appears to support it.
+  const listenOptions: any = { port, host };
+  if (process.platform !== "win32") {
+    listenOptions.reusePort = true;
+  }
+
+  server.listen(listenOptions, () => {
+    log(`serving on ${host}:${port}`);
+    log(`proxying to Streamlit on port ${process.env.STREAMLIT_PORT || '8501'}`);
   });
 })();

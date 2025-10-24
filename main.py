@@ -4,6 +4,10 @@ import os
 import pandas as pd
 import streamlit as st
 from openai import OpenAI
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # ==============================
 # API Clients

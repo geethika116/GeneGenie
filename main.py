@@ -6,88 +6,103 @@ import streamlit as st
 from openai import OpenAI
 from dotenv import load_dotenv
 
-# Load environment variables from .env file (for local development)
+# ==============================
+# Load environment variables
+# ==============================
 load_dotenv()
-
-# ==============================
-# API Clients
-# ==============================
-# Get API key from environment variable or Streamlit secrets
 api_key = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY", None)
-
 client = OpenAI(api_key=api_key)
 ncbi_api_key = os.getenv("NCBI_API_KEY")  # reserved for future features
 
 # ==============================
-# Streamlit Setup
+# Streamlit Page Config & Dark Theme
 # ==============================
-st.set_page_config(page_title="🧬 Gene Genie", page_icon="🧬", layout="wide")
-st.title("🧬 Gene Genie")
-st.write("Upload a research article PDF to extract DNA/RNA sequences with context and AI summaries!")
+st.set_page_config(
+    page_title="🧬 Gene Genie",
+    page_icon="🧬",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+st.markdown("""
+    <style>
+    .stApp { background-color: #0f1419; }
+    #MainMenu, footer, header { visibility: hidden; }
+    .main-title { font-size: 3rem; font-weight: 700; color: #ffffff; margin-bottom: 1rem; display: flex; align-items: center; gap: 1rem; }
+    .dna-icon { font-size: 2.5rem; }
+    .subtitle { font-size: 1rem; color: #e0e0e0; margin-bottom: 2rem; }
+    .upload-label { font-size: 0.875rem; color: #e0e0e0; margin-bottom: 0.5rem; font-weight: 500; }
+    [data-testid="stFileUploader"] { background-color: #1a1f2e; border: 2px dashed #3a4556; border-radius: 8px; padding: 3rem 2rem; }
+    [data-testid="stFileUploader"] section { border: none; background-color: transparent; }
+    [data-testid="stFileUploader"] section button { background-color: #2d3748; border: 1px solid #4a5568; border-radius: 6px; color: #e0e0e0; padding: 0.5rem 1.5rem; font-weight: 500; }
+    [data-testid="stFileUploader"] section button:hover { background-color: #3a4556; border-color: #5a6578; }
+    [data-testid="stFileUploader"] section div[data-testid="stMarkdownContainer"] p { color: #9ca3af; font-size: 0.875rem; }
+    p, span, div, label { color: #e0e0e0; }
+    small { color: #9ca3af; }
+    </style>
+""", unsafe_allow_html=True)
+
+# ==============================
+# Header
+# ==============================
+st.markdown("""
+    <div class="main-title">
+        <span class="dna-icon">🧬</span>
+        <span>Gene Genie</span>
+    </div>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+    <div class="subtitle">
+        Upload a research article PDF to extract DNA/RNA sequences with context and AI summaries!
+    </div>
+""", unsafe_allow_html=True)
+
+st.markdown('<div class="upload-label">Upload a PDF</div>', unsafe_allow_html=True)
 
 # ==============================
 # PDF Text Extraction
 # ==============================
-def extract_text_from_pdf(file):
-    """Extract all text from a PDF file using PyMuPDF."""
-    doc = fitz.open(stream=file.read(), filetype="pdf")
+def extract_text_from_pdf(uploaded_file):
+    uploaded_file.seek(0)  # reset pointer
+    file_bytes = uploaded_file.read()
+    doc = fitz.open(stream=file_bytes, filetype="pdf")
     text = ""
     for page in doc:
         text += page.get_text("text") + "\n"
-
-    # Remove soft line breaks inside sentences to preserve sequences
-    text = re.sub(r'-\n', '', text)  # remove hyphenation
-    text = re.sub(r'\n', ' ', text)  # convert line breaks to spaces
+    text = re.sub(r'-\n', '', text)
+    text = re.sub(r'\n', ' ', text)
     return text
-
 
 # ==============================
 # Sentence Splitting
 # ==============================
 def split_sentences(text):
-    """
-    Split text into sentences using punctuation while preserving order.
-    This avoids splitting sequences across line breaks.
-    """
     sentences = re.split(r'(?<=[.!?])\s+', text)
     return [s.strip() for s in sentences if s.strip()]
-
 
 # ==============================
 # Sequence Extraction
 # ==============================
 def extract_sequences(text):
-    """
-    Extract DNA/RNA sequences (>=8 bases) from text in PDF order.
-    Context includes the sequence itself exactly as in PDF.
-    Avoid duplicate substrings within the same sentence.
-    """
-    pattern = r"[ATGC]{8,}|[AUGC]{8,}"  # DNA or RNA sequences >=8 bases
+    pattern = r"[ATGC]{8,}|[AUGC]{8,}"
     sentences = split_sentences(text)
     extracted = []
-
     for sent in sentences:
         matches = re.findall(pattern, sent)
         if matches:
-            # Keep longest sequences first to avoid substring duplicates
             matches.sort(key=len, reverse=True)
             seen = set()
             for seq in matches:
                 if not any(seq in s for s in seen):
-                    extracted.append({
-                        "sequence": seq,
-                        "context": sent,
-                        "summary": ""
-                    })
+                    extracted.append({"sequence": seq, "context": sent, "summary": ""})
                     seen.add(seq)
     return extracted
-
 
 # ==============================
 # AI Summary with GPT
 # ==============================
 def summarize_with_gpt(sequence, context):
-    """Summarize sequence in context using OpenAI GPT model."""
     try:
         prompt = f"""
         Analyze the following biological sequence and explain its possible context:
@@ -95,65 +110,62 @@ def summarize_with_gpt(sequence, context):
         Context: {context}
         Provide a concise, scientific explanation.
         """
-
         response = client.chat.completions.create(
-            model="gpt-4o",  # use GPT-4o for detailed scientific summaries
+            model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=400,
             temperature=0.2
         )
         return response.choices[0].message.content.strip()
-
     except Exception as e:
         return f"⚠️ Error: {e}"
-
 
 # ==============================
 # CSV Export
 # ==============================
 def download_csv(sequences):
-    """Convert sequences list to CSV for download."""
     df = pd.DataFrame(sequences)
     return df.to_csv(index=False)
-
 
 # ==============================
 # Streamlit App Logic
 # ==============================
-uploaded_file = st.file_uploader("Upload a PDF", type=["pdf"])
+uploaded_file = st.file_uploader("Drag and drop file here", type=["pdf"])
 
 if uploaded_file is not None:
-    with st.spinner("Extracting text from PDF..."):
-        text = extract_text_from_pdf(uploaded_file)
-    st.success("✅ PDF text extracted!")
+    st.success(f"✅ File uploaded: {uploaded_file.name}")
+    st.info(f"File size: {uploaded_file.size / 1024:.2f} KB")
 
-    with st.spinner("Searching for DNA/RNA sequences..."):
-        sequences = extract_sequences(text)
+    if st.button("🧬 Extract DNA/RNA Sequences", use_container_width=True):
+        with st.spinner("Extracting text from PDF..."):
+            text = extract_text_from_pdf(uploaded_file)
+        st.success("✅ PDF text extracted!")
 
-    if sequences:
-        st.write(f"### Found {len(sequences)} sequences in the document:")
+        with st.spinner("Searching for DNA/RNA sequences..."):
+            sequences = extract_sequences(text)
 
-        for i, item in enumerate(sequences, 1):
-            with st.expander(f"Sequence {i}"):
-                st.code(item['sequence'], language="text")
-                st.write(f"**Context:** {item['context']}")
+        if sequences:
+            st.write(f"### Found {len(sequences)} sequences in the document:")
 
-                if os.getenv("OPENAI_API_KEY"):
-                    if st.button(f"Summarize Sequence {i}", key=f"summarize_{i}"):
-                        summary = summarize_with_gpt(item['sequence'], item['context'])
-                        item["summary"] = summary
-                        st.info(summary)
+            if api_key:
+                with st.spinner("Generating AI summaries..."):
+                    for item in sequences:
+                        item["summary"] = summarize_with_gpt(item['sequence'], item['context'])
 
-        # ----------------------
-        # CSV Download Button
-        # ----------------------
-        csv_data = download_csv(sequences)
-        st.download_button(
-            label="📥 Download CSV of Sequences",
-            data=csv_data,
-            file_name="gene_sequences.csv",
-            mime="text/csv"
-        )
+            for i, item in enumerate(sequences, 1):
+                with st.expander(f"Sequence {i}"):
+                    st.code(item['sequence'], language="text")
+                    st.write(f"**Context:** {item['context']}")
+                    if item["summary"]:
+                        st.write(f"**AI Summary:** {item['summary']}")
 
-    else:
-        st.warning("No DNA/RNA sequences found in this PDF.")
+            csv_data = download_csv(sequences)
+            st.download_button(
+                label="📥 Download CSV of Sequences",
+                data=csv_data,
+                file_name="gene_sequences.csv",
+                mime="text/csv"
+            )
+        else:
+            st.warning("No DNA/RNA sequences found in this PDF.")
+

@@ -64,12 +64,16 @@ st.markdown('<div class="upload-label">Upload a PDF</div>', unsafe_allow_html=Tr
 # PDF Text Extraction
 # ==============================
 def extract_text_from_pdf(uploaded_file):
-    uploaded_file.seek(0)  # reset pointer
+    """Extract all text from a PDF Streamlit uploaded file."""
+    uploaded_file.seek(0)  # reset pointer to start
     file_bytes = uploaded_file.read()
     doc = fitz.open(stream=file_bytes, filetype="pdf")
+
     text = ""
     for page in doc:
         text += page.get_text("text") + "\n"
+
+    # Clean soft line breaks
     text = re.sub(r'-\n', '', text)
     text = re.sub(r'\n', ' ', text)
     return text
@@ -168,4 +172,5 @@ if uploaded_file is not None:
             )
         else:
             st.warning("No DNA/RNA sequences found in this PDF.")
+
 

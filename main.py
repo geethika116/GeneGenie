@@ -6,13 +6,16 @@ import streamlit as st
 from openai import OpenAI
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
+# Load environment variables from .env file (for local development)
 load_dotenv()
 
 # ==============================
 # API Clients
 # ==============================
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# Get API key from environment variable or Streamlit secrets
+api_key = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY", None)
+
+client = OpenAI(api_key=api_key)
 ncbi_api_key = os.getenv("NCBI_API_KEY")  # reserved for future features
 
 # ==============================

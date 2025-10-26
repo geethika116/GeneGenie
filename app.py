@@ -2,12 +2,6 @@ import re
 import streamlit as st
 
 # ==============================
-# API Clients
-# ==============================
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-ncbi_api_key = os.getenv("NCBI_API_KEY")  # reserved for future features
-
-# ==============================
 # Streamlit Page Config & Dark Theme
 # ==============================
 st.set_page_config(

@@ -1,6 +1,7 @@
 import re
 import os
 import pandas as pd
+import fitz 
 import streamlit as st
 from openai import OpenAI
 from dotenv import load_dotenv

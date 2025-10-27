@@ -1,5 +1,4 @@
 import re
-import fitz  # PyMuPDF
 import os
 import pandas as pd
 import streamlit as st

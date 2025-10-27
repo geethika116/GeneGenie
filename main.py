@@ -1,17 +1,23 @@
 import re
 import os
+import io
 import pandas as pd
-import fitz 
 import streamlit as st
 from openai import OpenAI
 from dotenv import load_dotenv
+
+# Try to import fitz (PyMuPDF). If unavailable, leave it None and handle later.
+try:
+    import fitz  # PyMuPDF (import name is fitz)
+except Exception:
+    fitz = None
 
 # ==============================
 # Load environment variables
 # ==============================
 load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY", None)
-client = OpenAI(api_key=api_key)
+client = OpenAI(api_key=api_key) if api_key else None
 ncbi_api_key = os.getenv("NCBI_API_KEY")  # reserved for future features
 
 # ==============================
@@ -60,6 +66,10 @@ st.markdown("""
 
 st.markdown('<div class="upload-label">Upload a PDF</div>', unsafe_allow_html=True)
 
+# If there is no PDF backend available, show a warning (we will try fallback at runtime).
+if fitz is None:
+    st.warning("PyMuPDF (fitz) is not available in the environment. The app will try PyPDF2 at runtime as a fallback if present.")
+
 # ==============================
 # PDF Text Extraction
 # ==============================
@@ -67,16 +77,43 @@ def extract_text_from_pdf(uploaded_file):
     """Extract all text from a PDF Streamlit uploaded file."""
     uploaded_file.seek(0)  # reset pointer to start
     file_bytes = uploaded_file.read()
-    doc = fitz.open(stream=file_bytes, filetype="pdf")
 
-    text = ""
-    for page in doc:
-        text += page.get_text("text") + "\n"
+    # Prefer fitz if available
+    if fitz is not None:
+        try:
+            doc = fitz.open(stream=file_bytes, filetype="pdf")
+            text = ""
+            for page in doc:
+                text += page.get_text("text") + "\n"
+            # Clean soft line breaks
+            text = re.sub(r'-\n', '', text)
+            text = re.sub(r'\n', ' ', text)
+            return text
+        except Exception as e:
+            # If fitz fails for this file, fall back to PyPDF2
+            st.warning(f"PyMuPDF failed to parse this PDF: {e}. Falling back to PyPDF2 if available.")
 
-    # Clean soft line breaks
-    text = re.sub(r'-\n', '', text)
-    text = re.sub(r'\n', ' ', text)
-    return text
+    # Try PyPDF2 as a fallback (import here so app can start even if PyPDF2 missing)
+    try:
+        from PyPDF2 import PdfReader
+    except Exception:
+        st.error(
+            "Required PDF backend not installed. Install PyMuPDF (PyPI name 'PyMuPDF') or add 'PyPDF2' to requirements.txt."
+        )
+        st.stop()
+
+    try:
+        reader = PdfReader(io.BytesIO(file_bytes))
+        text_pages = []
+        for page in reader.pages:
+            text_pages.append(page.extract_text() or "")
+        text = "\n".join(text_pages)
+        text = re.sub(r'-\n', '', text)
+        text = re.sub(r'\n', ' ', text)
+        return text
+    except Exception as e:
+        st.error(f"Failed to extract text with PyPDF2: {e}")
+        return ""
 
 # ==============================
 # Sentence Splitting
@@ -107,6 +144,8 @@ def extract_sequences(text):
 # AI Summary with GPT
 # ==============================
 def summarize_with_gpt(sequence, context):
+    if not client:
+        return ""
     try:
         prompt = f"""
         Analyze the following biological sequence and explain its possible context:
@@ -143,34 +182,35 @@ if uploaded_file is not None:
     if st.button("🧬 Extract DNA/RNA Sequences", use_container_width=True):
         with st.spinner("Extracting text from PDF..."):
             text = extract_text_from_pdf(uploaded_file)
-        st.success("✅ PDF text extracted!")
+        if text:
+            st.success("✅ PDF text extracted!")
 
-        with st.spinner("Searching for DNA/RNA sequences..."):
-            sequences = extract_sequences(text)
+            with st.spinner("Searching for DNA/RNA sequences..."):
+                sequences = extract_sequences(text)
 
-        if sequences:
-            st.write(f"### Found {len(sequences)} sequences in the document:")
+            if sequences:
+                st.write(f"### Found {len(sequences)} sequences in the document:")
 
-            if api_key:
-                with st.spinner("Generating AI summaries..."):
-                    for item in sequences:
-                        item["summary"] = summarize_with_gpt(item['sequence'], item['context'])
+                if api_key:
+                    with st.spinner("Generating AI summaries..."):
+                        for item in sequences:
+                            item["summary"] = summarize_with_gpt(item['sequence'], item['context'])
 
-            for i, item in enumerate(sequences, 1):
-                with st.expander(f"Sequence {i}"):
-                    st.code(item['sequence'], language="text")
-                    st.write(f"**Context:** {item['context']}")
-                    if item["summary"]:
-                        st.write(f"**AI Summary:** {item['summary']}")
+                for i, item in enumerate(sequences, 1):
+                    with st.expander(f"Sequence {i}"):
+                        st.code(item['sequence'], language="text")
+                        st.write(f"**Context:** {item['context']}")
+                        if item["summary"]:
+                            st.write(f"**AI Summary:** {item['summary']}")
 
-            csv_data = download_csv(sequences)
-            st.download_button(
-                label="📥 Download CSV of Sequences",
-                data=csv_data,
-                file_name="gene_sequences.csv",
-                mime="text/csv"
-            )
+                csv_data = download_csv(sequences)
+                st.download_button(
+                    label="📥 Download CSV of Sequences",
+                    data=csv_data,
+                    file_name="gene_sequences.csv",
+                    mime="text/csv"
+                )
+            else:
+                st.warning("No DNA/RNA sequences found in this PDF.")
         else:
-            st.warning("No DNA/RNA sequences found in this PDF.")
-
-
+            st.error("No text could be extracted from the PDF.")

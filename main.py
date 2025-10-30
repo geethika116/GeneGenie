@@ -13,11 +13,31 @@ except Exception:
     fitz = None
 
 # ==============================
-# Load environment variables
+# Load OpenAI API key (prefer Streamlit secrets over environment/.env)
 # ==============================
-load_dotenv()
-api_key = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY", None)
+# Prefer Streamlit secrets.toml (used by Streamlit Cloud)
+api_key = None
+try:
+    # st.secrets behaves like a dict; use get to avoid KeyError
+    api_key = st.secrets.get("OPENAI_API_KEY") if hasattr(st, "secrets") else None
+except Exception:
+    api_key = None
+
+# Then check environment variables
+if not api_key:
+    api_key = os.getenv("OPENAI_API_KEY")
+
+# Finally, fall back to loading a local .env (for local development only)
+if not api_key:
+    try:
+        load_dotenv()
+        api_key = os.getenv("OPENAI_API_KEY")
+    except Exception:
+        # If dotenv isn't available or fails, continue without it
+        api_key = api_key
+
 client = OpenAI(api_key=api_key) if api_key else None
+# NCBI key remains environment-driven (optional)
 ncbi_api_key = os.getenv("NCBI_API_KEY")  # reserved for future features
 
 # ==============================

@@ -6,42 +6,38 @@ import streamlit as st
 from openai import OpenAI
 from dotenv import load_dotenv
 
-# Try to import fitz (PyMuPDF). If unavailable, leave it None and handle later.
+# Try to import PyMuPDF
 try:
-    import fitz  # PyMuPDF (import name is fitz)
+    import fitz
 except Exception:
     fitz = None
 
+
 # ==============================
-# Load OpenAI API key (prefer Streamlit secrets over environment/.env)
+# Load OpenAI API Key
 # ==============================
-# Prefer Streamlit secrets.toml (used by Streamlit Cloud)
 api_key = None
+
 try:
-    # st.secrets behaves like a dict; use get to avoid KeyError
     api_key = st.secrets.get("OPENAI_API_KEY") if hasattr(st, "secrets") else None
 except Exception:
     api_key = None
 
-# Then check environment variables
 if not api_key:
     api_key = os.getenv("OPENAI_API_KEY")
 
-# Finally, fall back to loading a local .env (for local development only)
 if not api_key:
     try:
         load_dotenv()
         api_key = os.getenv("OPENAI_API_KEY")
     except Exception:
-        # If dotenv isn't available or fails, continue without it
-        api_key = api_key
+        pass
 
 client = OpenAI(api_key=api_key) if api_key else None
-# NCBI key remains environment-driven (optional)
-ncbi_api_key = os.getenv("NCBI_API_KEY")  # reserved for future features
+
 
 # ==============================
-# Streamlit Page Config & Dark Theme
+# Streamlit Config
 # ==============================
 st.set_page_config(
     page_title="🧬 Gene Genie",
@@ -51,137 +47,136 @@ st.set_page_config(
 )
 
 st.markdown("""
-    <style>
-    .stApp { background-color: #0f1419; }
-    #MainMenu, footer, header { visibility: hidden; }
-    .main-title { font-size: 3rem; font-weight: 700; color: #ffffff; margin-bottom: 1rem; display: flex; align-items: center; gap: 1rem; }
-    .dna-icon { font-size: 2.5rem; }
-    .subtitle { font-size: 1rem; color: #e0e0e0; margin-bottom: 2rem; }
-    .upload-label { font-size: 0.875rem; color: #e0e0e0; margin-bottom: 0.5rem; font-weight: 500; }
-    [data-testid="stFileUploader"] { background-color: #1a1f2e; border: 2px dashed #3a4556; border-radius: 8px; padding: 3rem 2rem; }
-    [data-testid="stFileUploader"] section { border: none; background-color: transparent; }
-    [data-testid="stFileUploader"] section button { background-color: #2d3748; border: 1px solid #4a5568; border-radius: 6px; color: #e0e0e0; padding: 0.5rem 1.5rem; font-weight: 500; }
-    [data-testid="stFileUploader"] section button:hover { background-color: #3a4556; border-color: #5a6578; }
-    [data-testid="stFileUploader"] section div[data-testid="stMarkdownContainer"] p { color: #9ca3af; font-size: 0.875rem; }
-    p, span, div, label { color: #e0e0e0; }
-    small { color: #9ca3af; }
-    </style>
-""", unsafe_allow_html=True)
-
-# ==============================
-# Header
-# ==============================
-st.markdown("""
-    <div class="main-title">
-        <span class="dna-icon">🧬</span>
-        <span>Gene Genie</span>
-    </div>
+<style>
+.stApp { background-color: #0f1419; }
+#MainMenu, footer, header { visibility: hidden; }
+.main-title { font-size: 3rem; font-weight: 700; color: #ffffff; margin-bottom: 1rem; display: flex; align-items: center; gap: 1rem; }
+.subtitle { font-size: 1rem; color: #e0e0e0; margin-bottom: 2rem; }
+p, span, div, label { color: #e0e0e0; }
+</style>
 """, unsafe_allow_html=True)
 
 st.markdown("""
-    <div class="subtitle">
-        Upload a research article PDF to extract DNA/RNA sequences with context and AI summaries!
-    </div>
+<div class="main-title">
+🧬 Gene Genie
+</div>
+<div class="subtitle">
+Upload a research article PDF to extract DNA/RNA sequences with minimal clean context.
+</div>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="upload-label">Upload a PDF</div>', unsafe_allow_html=True)
-
-# If there is no PDF backend available, show a warning (we will try fallback at runtime).
-if fitz is None:
-    st.warning("PyMuPDF (fitz) is not available in the environment. The app will try PyPDF2 at runtime as a fallback if present.")
 
 # ==============================
-# PDF Text Extraction
+# PDF Extraction
 # ==============================
 def extract_text_from_pdf(uploaded_file):
-    """Extract all text from a PDF Streamlit uploaded file."""
-    uploaded_file.seek(0)  # reset pointer to start
+    uploaded_file.seek(0)
     file_bytes = uploaded_file.read()
 
-    # Prefer fitz if available
-    if fitz is not None:
+    if fitz:
         try:
             doc = fitz.open(stream=file_bytes, filetype="pdf")
             text = ""
             for page in doc:
                 text += page.get_text("text") + "\n"
-            # Clean soft line breaks
-            text = re.sub(r'-\n', '', text)
-            text = re.sub(r'\n', ' ', text)
-            return text
-        except Exception as e:
-            # If fitz fails for this file, fall back to PyPDF2
-            st.warning(f"PyMuPDF failed to parse this PDF: {e}. Falling back to PyPDF2 if available.")
+        except Exception:
+            text = ""
+    else:
+        try:
+            from PyPDF2 import PdfReader
+            reader = PdfReader(io.BytesIO(file_bytes))
+            text = "\n".join([page.extract_text() or "" for page in reader.pages])
+        except Exception:
+            text = ""
 
-    # Try PyPDF2 as a fallback (import here so app can start even if PyPDF2 missing)
-    try:
-        from PyPDF2 import PdfReader
-    except Exception:
-        st.error(
-            "Required PDF backend not installed. Install PyMuPDF (PyPI name 'PyMuPDF') or add 'PyPDF2' to requirements.txt."
-        )
-        st.stop()
+    # Clean PDF artifacts
+    text = re.sub(r'-\n', '', text)
+    text = re.sub(r'\n', ' ', text)
+    text = re.sub(r'\s+', ' ', text)
 
-    try:
-        reader = PdfReader(io.BytesIO(file_bytes))
-        text_pages = []
-        for page in reader.pages:
-            text_pages.append(page.extract_text() or "")
-        text = "\n".join(text_pages)
-        text = re.sub(r'-\n', '', text)
-        text = re.sub(r'\n', ' ', text)
-        return text
-    except Exception as e:
-        st.error(f"Failed to extract text with PyPDF2: {e}")
-        return ""
+    return text.upper()
+
 
 # ==============================
-# Sentence Splitting
+# CLEAN SEQUENCE EXTRACTION
 # ==============================
-def split_sentences(text):
-    sentences = re.split(r'(?<=[.!?])\s+', text)
-    return [s.strip() for s in sentences if s.strip()]
+def extract_sequences(text, flank_tokens=2, min_length=8):
+    """
+    Extract DNA/RNA sequences with minimal surrounding context.
+    Removes fragments and duplicates.
+    """
+
+    # DNA or RNA pattern
+    pattern = rf"\b[ATGC]{{{min_length},}}\b|\b[AUGC]{{{min_length},}}\b"
+
+    # Tokenize document
+    tokens = re.findall(r"\b\w+\b", text)
+
+    # First pass: collect sequences
+    raw_sequences = [
+        token for token in tokens
+        if re.fullmatch(pattern, token)
+    ]
+
+    # Deduplicate + sort longest first
+    unique_sequences = sorted(set(raw_sequences), key=len, reverse=True)
+
+    # Remove fragments (substrings of longer sequences)
+    filtered_sequences = []
+    for seq in unique_sequences:
+        if not any(seq in longer and seq != longer for longer in filtered_sequences):
+            filtered_sequences.append(seq)
+
+    results = []
+    seen_contexts = set()
+
+    # Extract limited context windows
+    for i, token in enumerate(tokens):
+        if token in filtered_sequences:
+            start = max(0, i - flank_tokens)
+            end = min(len(tokens), i + flank_tokens + 1)
+            context = " ".join(tokens[start:end])
+
+            if context not in seen_contexts:
+                results.append({
+                    "sequence": token,
+                    "context": context,
+                    "summary": ""
+                })
+                seen_contexts.add(context)
+
+    return results
+
 
 # ==============================
-# Sequence Extraction
-# ==============================
-def extract_sequences(text):
-    pattern = r"[ATGC]{8,}|[AUGC]{8,}"
-    sentences = split_sentences(text)
-    extracted = []
-    for sent in sentences:
-        matches = re.findall(pattern, sent)
-        if matches:
-            matches.sort(key=len, reverse=True)
-            seen = set()
-            for seq in matches:
-                if not any(seq in s for s in seen):
-                    extracted.append({"sequence": seq, "context": sent, "summary": ""})
-                    seen.add(seq)
-    return extracted
-
-# ==============================
-# AI Summary with GPT
+# GPT SUMMARY
 # ==============================
 def summarize_with_gpt(sequence, context):
     if not client:
         return ""
+
     try:
         prompt = f"""
-        Analyze the following biological sequence and explain its possible context:
+        Analyze this biological sequence briefly.
+
         Sequence: {sequence}
-        Context: {context}
-        Provide a concise, scientific explanation.
+        Local Context: {context}
+
+        Provide a concise scientific explanation.
         """
+
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=400,
+            max_tokens=300,
             temperature=0.2
         )
+
         return response.choices[0].message.content.strip()
+
     except Exception as e:
-        return f"⚠️ Error: {e}"
+        return f"Error: {e}"
+
 
 # ==============================
 # CSV Export
@@ -190,47 +185,52 @@ def download_csv(sequences):
     df = pd.DataFrame(sequences)
     return df.to_csv(index=False)
 
-# ==============================
-# Streamlit App Logic
-# ==============================
-uploaded_file = st.file_uploader("Drag and drop file here", type=["pdf"])
 
-if uploaded_file is not None:
-    st.success(f"✅ File uploaded: {uploaded_file.name}")
-    st.info(f"File size: {uploaded_file.size / 1024:.2f} KB")
+# ==============================
+# Streamlit Logic
+# ==============================
+uploaded_file = st.file_uploader("Upload PDF", type=["pdf"])
 
-    if st.button("🧬 Extract DNA/RNA Sequences", use_container_width=True):
-        with st.spinner("Extracting text from PDF..."):
+if uploaded_file:
+
+    st.success(f"File uploaded: {uploaded_file.name}")
+
+    if st.button("🧬 Extract Sequences", use_container_width=True):
+
+        with st.spinner("Extracting PDF text..."):
             text = extract_text_from_pdf(uploaded_file)
-        if text:
-            st.success("✅ PDF text extracted!")
 
-            with st.spinner("Searching for DNA/RNA sequences..."):
+        if not text:
+            st.error("Could not extract text from PDF.")
+        else:
+            with st.spinner("Scanning for DNA/RNA sequences..."):
                 sequences = extract_sequences(text)
 
-            if sequences:
-                st.write(f"### Found {len(sequences)} sequences in the document:")
+            if not sequences:
+                st.warning("No DNA/RNA sequences found.")
+            else:
+                st.success(f"Found {len(sequences)} unique sequences.")
 
                 if api_key:
                     with st.spinner("Generating AI summaries..."):
                         for item in sequences:
-                            item["summary"] = summarize_with_gpt(item['sequence'], item['context'])
+                            item["summary"] = summarize_with_gpt(
+                                item["sequence"],
+                                item["context"]
+                            )
 
                 for i, item in enumerate(sequences, 1):
                     with st.expander(f"Sequence {i}"):
-                        st.code(item['sequence'], language="text")
+                        st.code(item["sequence"])
                         st.write(f"**Context:** {item['context']}")
                         if item["summary"]:
                             st.write(f"**AI Summary:** {item['summary']}")
 
                 csv_data = download_csv(sequences)
+
                 st.download_button(
-                    label="📥 Download CSV of Sequences",
-                    data=csv_data,
-                    file_name="gene_sequences.csv",
-                    mime="text/csv"
+                    "📥 Download CSV",
+                    csv_data,
+                    "gene_sequences.csv",
+                    "text/csv"
                 )
-            else:
-                st.warning("No DNA/RNA sequences found in this PDF.")
-        else:
-            st.error("No text could be extracted from the PDF.")
